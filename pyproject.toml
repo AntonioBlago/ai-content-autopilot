@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=68.0,<78", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "ai-content-autopilot"
 version = "1.0.0"
 description = "Python SDK for the Visibly Content Autopilot API - Pull API client, HMAC webhook verification, and Flask Blueprint."
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.8"
 authors = [
     { name = "Antonio Blago", email = "info@antonioblago.com" },

@@ -152,6 +152,58 @@ if not verify_webhook_signature(payload_bytes, 'your-secret', signature):
 | `contentpilot_webhook_bp` | Flask Blueprint. Register with `app.register_blueprint()`. Endpoint: `POST /webhooks/visibly` |
 | `default_flask_blog_handler(article)` | Default handler: saves article as JSON to `./content_output/` |
 
+## Webhook Payload
+
+When a webhook fires, the `POST /webhooks/visibly` endpoint receives a JSON body with these fields:
+
+```json
+{
+  "event": "article.approved",
+  "article_id": 42,
+  "title": "SEO Guide 2026",
+  "slug": "seo-guide-2026",
+  "project_id": 5,
+  "scheduled_date": "2026-03-01T09:00:00",
+  "pull_url": "https://www.antonioblago.com/content-autopilot/api/v1/articles/42",
+  "timestamp": "2026-02-20T10:00:00Z"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | `article.approved`, `article.published`, or `article.failed` |
+| `article_id` | int | Database ID of the article |
+| `title` | string | Article title |
+| `slug` | string | URL-safe slug |
+| `project_id` | int | Owning project ID |
+| `scheduled_date` | string/null | ISO 8601 scheduled publish date, or `null` |
+| `pull_url` | string | Full URL to fetch article content via Pull API |
+| `timestamp` | string | ISO 8601 UTC timestamp of the event |
+
+The Blueprint automatically fetches the full article via `pull_url` and injects webhook metadata (`_webhook_event`, `_webhook_timestamp`, `_scheduled_date`) into the article dict before calling your handler.
+
+## Article Response Fields
+
+When fetching an article via `VisiblyClient.fetch_article()`, the returned dict contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | int | Unique article ID |
+| `title` | string | Article title |
+| `slug` | string | URL-friendly slug |
+| `status` | string | Current status (see Article Lifecycle) |
+| `content_html` | string | Full article as HTML |
+| `content_markdown` | string | Article as Markdown (only if `include_markdown=True`) |
+| `keywords` | list | Target keywords, e.g. `["seo", "keyword research"]` |
+| `meta_description` | string | SEO meta description (max 160 chars) |
+| `seo_score` | int | SEO optimization score (0-100) |
+| `word_count` | int | Article word count |
+| `project_id` | int | Owning project ID |
+| `published_url` | string | Public URL after publication (empty if unpublished) |
+| `scheduled_date` | string/null | Planned publish date (ISO 8601) |
+| `created_at` | string | Creation timestamp |
+| `updated_at` | string | Last update timestamp |
+
 ## Webhook Security
 
 Every webhook request includes an `X-Webhook-Signature` header with an HMAC-SHA256 signature:
@@ -161,6 +213,39 @@ X-Webhook-Signature: sha256=<hex_digest>
 ```
 
 The SDK verifies this automatically when using the Blueprint. The verification uses `hmac.compare_digest` for timing-safe comparison to prevent timing attacks.
+
+## Error Handling
+
+The `VisiblyClient` methods handle errors gracefully:
+
+- `fetch_article()` returns `None` on any error (404, network failure, timeout)
+- `list_articles()` returns `[]` on any error
+- `confirm_published()` returns `False` on any error
+
+All errors are logged via Python's `logging` module at WARNING or ERROR level.
+
+When using the Blueprint, HTTP responses are:
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success — article processed |
+| 400 | Invalid JSON in webhook payload |
+| 401 | HMAC signature verification failed |
+| 422 | Handler returned `False` (article rejected) |
+| 500 | Webhook not configured, or handler raised an exception |
+| 502 | Failed to fetch article from Pull API |
+
+## Rate Limits
+
+The Visibly API enforces the following rate limits:
+
+| Endpoint | Limit |
+|----------|-------|
+| `GET /api/v1/articles` | 120 requests/min |
+| `GET /api/v1/articles/{id}` | 60 requests/min |
+| `POST /api/v1/articles/{id}/confirm` | 30 requests/min |
+
+When rate-limited, the API returns HTTP 429 with a `Retry-After` header.
 
 ## Links
 

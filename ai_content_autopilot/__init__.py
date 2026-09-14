@@ -13,7 +13,7 @@ from .webhook import (
     default_flask_blog_handler,
 )
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 __all__ = [
     "VisiblyClient",

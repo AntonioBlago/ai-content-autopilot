@@ -21,7 +21,10 @@ class TestVisiblyClientInit:
 
     def test_default_base_url(self):
         c = VisiblyClient(api_key='key')
-        assert c.base_url == 'https://www.antonioblago.com/content-autopilot'
+        # v1.1.0: der alte Default zeigte auf den Host, wo der Autopilot
+        # frueher lief. Dort antwortet heute ein Redirect, der Pull lieferte
+        # None, und der Empfaenger meldete trotzdem Erfolg.
+        assert c.base_url == 'https://app.visibly-ai.com'
 
     def test_trailing_slash_stripped(self):
         c = VisiblyClient(api_key='key', base_url='https://example.com/')

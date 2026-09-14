@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import json
 import os
+import threading
+import time
 
 import pytest
 from flask import Flask
@@ -11,6 +13,7 @@ from unittest.mock import patch, MagicMock
 
 from ai_content_autopilot.webhook import (
     _config,
+    _in_flight,
     configure_visibly,
     contentpilot_webhook_bp,
     default_flask_blog_handler,
@@ -69,11 +72,21 @@ class TestConfigureVisibly:
 
     def test_default_base_url(self):
         configure_visibly(webhook_secret='s', api_key='k')
-        assert _config['base_url'] == 'https://www.antonioblago.com/content-autopilot'
+        assert _config['base_url'] == 'https://app.visibly-ai.com'
 
 
 class TestWebhookEndpoint:
-    """Test POST /webhooks/visibly endpoint."""
+    """Response contract of the synchronous path (``background=False``).
+
+    The default since v1.1.0 is the background path; see
+    ``TestBackgroundProcessing``. These cases still describe what each outcome
+    means, so they run the synchronous variant explicitly.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _synchronous(self):
+        _config['background'] = False
+        yield
 
     def test_no_secret_configured_returns_500(self, flask_client):
         """Unconfigured webhook returns 500."""
@@ -208,6 +221,133 @@ class TestWebhookEndpoint:
             headers={'X-Webhook-Signature': sig},
         )
         assert r.status_code == 500
+
+
+class TestBackgroundProcessing:
+    """The default path since v1.1.0: acknowledge first, work afterwards.
+
+    Measured in production on 2026-09-14: a receiver that fetched and
+    translated inside the request blew past Visibly's 10 second delivery
+    timeout, so three delivery attempts became three translation runs of the
+    same article.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        _in_flight.clear()
+        _config['background'] = True
+        yield
+        _in_flight.clear()
+
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_acknowledges_before_the_handler_finishes(self, mock_cls, flask_client):
+        arrived, go_on = threading.Event(), threading.Event()
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        mock_cls.return_value.fetch_article.return_value = {'id': 7}
+
+        def slow_handler(article):
+            arrived.set()
+            go_on.wait(10)  # safety net: the test never hangs forever
+            return True
+
+        _config['on_article_received'] = slow_handler
+
+        payload = json.dumps({'event': 'article.updated', 'article_id': 7}).encode()
+        sig = _make_signature(payload, 'secret')
+        started = time.monotonic()
+        r = flask_client.post(
+            '/webhooks/visibly', data=payload,
+            headers={'X-Webhook-Signature': sig},
+        )
+        elapsed = time.monotonic() - started
+        try:
+            assert r.status_code == 202
+            assert r.get_json() == {'status': 'accepted', 'article_id': 7}
+            assert elapsed < 2.0, (
+                f"handler blocked the response for {elapsed:.1f}s; Visibly gives up "
+                f"after 10s and redelivers"
+            )
+            assert arrived.wait(10), "the handler was never called"
+        finally:
+            go_on.set()
+
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_repeated_delivery_while_busy_is_skipped(self, mock_cls, flask_client):
+        arrived, go_on = threading.Event(), threading.Event()
+        calls = []
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        mock_cls.return_value.fetch_article.return_value = {'id': 8}
+
+        def slow_handler(article):
+            calls.append(article['id'])
+            arrived.set()
+            go_on.wait(10)
+            return True
+
+        _config['on_article_received'] = slow_handler
+
+        payload = json.dumps({'event': 'article.updated', 'article_id': 8}).encode()
+        headers = {'X-Webhook-Signature': _make_signature(payload, 'secret')}
+        try:
+            first = flask_client.post('/webhooks/visibly', data=payload, headers=headers)
+            assert arrived.wait(10)
+            second = flask_client.post('/webhooks/visibly', data=payload, headers=headers)
+
+            assert first.get_json()['status'] == 'accepted'
+            assert second.get_json()['status'] == 'already_processing'
+            assert second.status_code == 202
+            assert calls == [8]  # translated once, not twice
+        finally:
+            go_on.set()
+
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_handler_error_does_not_reach_the_sender(self, mock_cls, flask_client):
+        """A failure in the work is not a failed delivery.
+
+        A 5xx would invite a retry that reproduces the same error.
+        """
+        done = threading.Event()
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        mock_cls.return_value.fetch_article.return_value = {'id': 9}
+
+        def bad_handler(article):
+            try:
+                raise RuntimeError("boom")
+            finally:
+                done.set()
+
+        _config['on_article_received'] = bad_handler
+
+        payload = json.dumps({'event': 'article.approved', 'article_id': 9}).encode()
+        r = flask_client.post(
+            '/webhooks/visibly', data=payload,
+            headers={'X-Webhook-Signature': _make_signature(payload, 'secret')},
+        )
+        assert r.status_code == 202
+        assert done.wait(10)
+
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_article_is_released_after_the_run(self, mock_cls, flask_client):
+        """Otherwise a second, legitimate update would be skipped forever."""
+        calls = []
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        mock_cls.return_value.fetch_article.return_value = {'id': 10}
+        _config['on_article_received'] = lambda a: calls.append(a['id']) or True
+
+        payload = json.dumps({'event': 'article.updated', 'article_id': 10}).encode()
+        headers = {'X-Webhook-Signature': _make_signature(payload, 'secret')}
+        for _ in range(2):
+            flask_client.post('/webhooks/visibly', data=payload, headers=headers)
+            deadline = time.monotonic() + 10
+            while _in_flight and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        assert calls == [10, 10]
+        assert _in_flight == set()
 
 
 class TestDefaultHandler:

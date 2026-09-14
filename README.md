@@ -139,11 +139,15 @@ if not verify_webhook_signature(payload_bytes, 'your-secret', signature):
 | `rejected` | Rejected by user | - |
 | `failed` | Generation failed | `article.failed` |
 
+An already published article that is edited in Visibly and pushed back fires
+`article.updated`. The payload carries `published_url` and `revision` so you
+can find the existing post by URL and skip a state you already have.
+
 ## API Reference
 
 | Function / Class | Description |
 |---|---|
-| `configure_visibly(webhook_secret, api_key, base_url, on_article_received)` | Configure the Blueprint with credentials and callback |
+| `configure_visibly(webhook_secret, api_key, base_url, on_article_received, background)` | Configure the Blueprint. `background=True` (default) acknowledges with 202 and works in a thread |
 | `verify_webhook_signature(payload_bytes, secret, signature_header)` | Verify HMAC-SHA256 signature. Returns `True`/`False` |
 | `VisiblyClient(api_key, base_url, timeout)` | Pull API client for fetching, listing, and confirming articles |
 | `client.fetch_article(article_id, include_markdown)` | Returns article dict or `None` on error |
@@ -164,14 +168,14 @@ When a webhook fires, the `POST /webhooks/visibly` endpoint receives a JSON body
   "slug": "seo-guide-2026",
   "project_id": 5,
   "scheduled_date": "2026-03-01T09:00:00",
-  "pull_url": "https://www.antonioblago.com/content-autopilot/api/v1/articles/42",
+  "pull_url": "https://app.visibly-ai.com/api/v1/articles/42",
   "timestamp": "2026-02-20T10:00:00Z"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `event` | string | `article.approved`, `article.published`, or `article.failed` |
+| `event` | string | `article.approved`, `article.updated`, `article.published`, or `article.failed` |
 | `article_id` | int | Database ID of the article |
 | `title` | string | Article title |
 | `slug` | string | URL-safe slug |
@@ -179,8 +183,10 @@ When a webhook fires, the `POST /webhooks/visibly` endpoint receives a JSON body
 | `scheduled_date` | string/null | ISO 8601 scheduled publish date, or `null` |
 | `pull_url` | string | Full URL to fetch article content via Pull API |
 | `timestamp` | string | ISO 8601 UTC timestamp of the event |
+| `published_url` | string | Live URL of the existing post (`article.updated` only) |
+| `revision` | int | Counter that increases on every write in Visibly (`article.updated` only) |
 
-The Blueprint automatically fetches the full article via `pull_url` and injects webhook metadata (`_webhook_event`, `_webhook_timestamp`, `_scheduled_date`) into the article dict before calling your handler.
+The Blueprint fetches the full article via the Pull API and injects webhook metadata (`_webhook_event`, `_webhook_timestamp`, `_scheduled_date`, `_published_url`, `_revision`) into the article dict before calling your handler.
 
 ## Article Response Fields
 
@@ -199,10 +205,135 @@ When fetching an article via `VisiblyClient.fetch_article()`, the returned dict 
 | `seo_score` | int | SEO optimization score (0-100) |
 | `word_count` | int | Article word count |
 | `project_id` | int | Owning project ID |
+| `plan_id` | int/null | Content cluster the article belongs to |
+| `url_prefix` | string/null | Path prefix of the cluster, e.g. `/glossary/` |
+| `content_language` | string/null | Language of the cluster, e.g. `de`, `en` |
+| `target_country` | string/null | Target country of the cluster, e.g. `DE` |
+| `recommended_page_type` | string | Page template hint, e.g. `guide`, `blog` |
+| `revision` | int | Increases on every write in Visibly |
+| `content_format` | string | `html` or `markdown` |
 | `published_url` | string | Public URL after publication (empty if unpublished) |
 | `scheduled_date` | string/null | Planned publish date (ISO 8601) |
 | `created_at` | string | Creation timestamp |
 | `updated_at` | string | Last update timestamp |
+
+## Delivery Contract
+
+**A webhook is a signal, not a job with a return value.** Visibly waits 10
+seconds for your response, and this is what each outcome means to it:
+
+| Your response | How Visibly reads it |
+|---|---|
+| `202` | Accepted, you are working on it. Success. |
+| `200` with a body naming `blog_post_id`, `post_id` or `id` | Processed, done. |
+| `200` with a JSON body naming none of those | Acknowledged, but nothing happened. Logged as a failure with your message. |
+| `4xx` | Rejected. Not retried, a second attempt would fail the same way. |
+| `5xx`, `429` | Transient. Retried after 1s, 5s, 25s. |
+| No response within 10s (read timeout) | Delivered, outcome unknown. **Not retried.** |
+
+That last row is the one that matters. Up to v1.0.2 this SDK fetched the
+article and ran your handler inside the request. If your handler was slow, and
+translating an article into several languages is slow, Visibly gave up waiting
+and delivered again. Measured in production on 2026-09-14: three delivery
+attempts for one article turned into three LLM translation runs on the
+receiving CMS.
+
+Both sides are fixed now. Visibly no longer retries on a read timeout, because
+the request had already reached you. And this SDK acknowledges with `202`
+before doing any work:
+
+```python
+configure_visibly(
+    webhook_secret='...',
+    api_key='...',
+    on_article_received=my_handler,
+    background=True,   # the default: acknowledge first, work afterwards
+)
+```
+
+The background path also keeps a process-local register of articles currently
+being processed, so a repeated delivery is skipped instead of running your
+handler twice. With multiple web workers that register does not span
+processes. If double processing would be expensive for you, add a claim column
+in your own database.
+
+Set `background=False` only if your handler reliably finishes inside those 10
+seconds. You then get the synchronous response codes (200 / 422 / 500 / 502).
+
+## Multilingual Sites and hreflang
+
+**Visibly writes one article in one language.** There is no translation
+endpoint, and no article carries several language variants. Going multilingual
+is a structural decision, not a post-processing step, and you have two ways to
+make it.
+
+### Option A: your CMS translates
+
+You receive the source article and produce the other languages yourself. This
+is what [TMPilot.ai](https://www.tmpilot.ai) does: one German article arrives,
+the CMS translates it and stores all languages under one post.
+
+- **You own** the translation cost, the glossary, and the consistency between
+  languages.
+- **Visibly sees one article.** A later `article.updated` overwrites your
+  source language, and your CMS re-derives the rest.
+- Slow by nature, which is exactly why your handler must not run inside the
+  webhook request. See **Delivery Contract** above.
+
+### Option B: one cluster per language
+
+A content cluster in Visibly is a plan with its own path prefix, language and
+target country. Create one per language, and Visibly writes each article
+natively in that language instead of translating it:
+
+| Cluster | `content_language` | `target_country` | `url_prefix` |
+|---|---|---|---|
+| Glossary DE | `de` | `DE` | `/glossar/` |
+| Glossary EN | `en` | `US` | `/en/glossary/` |
+| Glossary FR | `fr` | `FR` | `/fr/glossaire/` |
+
+Every article then arrives with those three fields, and **you build the URL**:
+
+```python
+def my_handler(article):
+    prefix = article.get('url_prefix') or '/'
+    url = f"https://example.com{prefix}{article['slug']}"
+    lang = article.get('content_language')  # 'de', 'en', 'fr' - or None
+    ...
+```
+
+- **Native phrasing per language**, not a translation of German sentence
+  structure. Keywords are researched per market.
+- **Costs one article per language** against your monthly quota.
+
+### How the hreflang structure comes about
+
+**Visibly does not build URLs and does not emit hreflang tags.** It delivers
+`slug`, `url_prefix` and `content_language` as the blueprint; the finished URL
+is yours, and you report it back with `confirm_published()`. The tags are
+therefore yours to render:
+
+```html
+<link rel="alternate" hreflang="de" href="https://example.com/glossar/nizza-klasse/">
+<link rel="alternate" hreflang="en" href="https://example.com/en/glossary/nice-class/">
+<link rel="alternate" hreflang="fr" href="https://example.com/fr/glossaire/classe-de-nice/">
+<link rel="alternate" hreflang="x-default" href="https://example.com/en/glossary/nice-class/">
+```
+
+Three rules that generators get wrong more often than not:
+
+1. **Every variant links to every variant, including itself.** A page that
+   omits its own hreflang is treated as an incomplete set and ignored.
+2. **`x-default` points at the version for visitors none of the others fit**,
+   usually the English one. It is not "the site's default language".
+3. **Only link pages that exist and are indexable.** An hreflang pointing at a
+   `noindex` page or a 404 invalidates the whole cluster.
+
+**What Visibly does not tell you yet:** which articles are translations of one
+another. Two clusters deliver two independent articles, and there is no group
+identifier linking them. Keep that mapping on your side, using the cluster
+pair plus your own topic key, or derive it from `plan_id` and the order in
+which topics were queued.
 
 ## Webhook Security
 
@@ -224,13 +355,26 @@ The `VisiblyClient` methods handle errors gracefully:
 
 All errors are logged via Python's `logging` module at WARNING or ERROR level.
 
-When using the Blueprint, HTTP responses are:
+When using the Blueprint with `background=True` (the default), HTTP responses are:
+
+| Code | Meaning |
+|------|---------|
+| 202 | Accepted — fetching and processing in the background |
+| 202 `already_processing` | This article is already being processed, duplicate skipped |
+| 400 | Invalid JSON in webhook payload |
+| 401 | HMAC signature verification failed |
+| 500 | Webhook secret or API key not configured |
+
+A failure inside your handler does **not** become a 5xx: the delivery
+succeeded, the work did not. A 5xx would invite a retry that reproduces the
+same error. Failures are logged, so watch your logs rather than the HTTP
+status.
+
+With `background=False` the response reflects the outcome of the work:
 
 | Code | Meaning |
 |------|---------|
 | 200 | Success — article processed |
-| 400 | Invalid JSON in webhook payload |
-| 401 | HMAC signature verification failed |
 | 422 | Handler returned `False` (article rejected) |
 | 500 | Webhook not configured, or handler raised an exception |
 | 502 | Failed to fetch article from Pull API |
@@ -249,9 +393,8 @@ When rate-limited, the API returns HTTP 429 with a `Retry-After` header.
 
 ## Links
 
-- [Developer Documentation](https://www.antonioblago.com/developers) — full API docs, endpoint reference, code examples in Python, Node.js, and PHP
-- [Visibly Content Autopilot](https://www.antonioblago.com/content-autopilot) — the platform
-- [API Keys](https://www.antonioblago.com/account/api-keys) — manage your API keys
+- [Visibly AI](https://app.visibly-ai.com) — the platform
+- [API Keys](https://app.visibly-ai.com/settings) — manage your API keys
 - [GitHub Repository](https://github.com/AntonioBlago/ai-content-autopilot)
 - [PyPI Package](https://pypi.org/project/ai-content-autopilot/)
 

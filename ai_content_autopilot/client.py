@@ -12,6 +12,13 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+#: Default Visibly host. Up to v1.0.2 this pointed at
+#: ``https://www.antonioblago.com/content-autopilot``, where the autopilot used
+#: to live. That host answers with a redirect today, so ``fetch_article``
+#: returned ``None`` while the webhook handler still reported success and
+#: nothing was ever published (measured in production on 2026-09-14).
+DEFAULT_BASE_URL = 'https://app.visibly-ai.com'
+
 
 class VisiblyClient:
     """
@@ -23,7 +30,7 @@ class VisiblyClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = 'https://www.antonioblago.com/content-autopilot',
+        base_url: str = DEFAULT_BASE_URL,
         timeout: int = 30,
     ):
         self.api_key = api_key
@@ -34,7 +41,7 @@ class VisiblyClient:
         return {
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
-            'User-Agent': 'ai-content-autopilot/1.0',
+            'User-Agent': 'ai-content-autopilot/1.1',
         }
 
     def fetch_article(self, article_id: int, include_markdown: bool = True) -> Optional[Dict[str, Any]]:

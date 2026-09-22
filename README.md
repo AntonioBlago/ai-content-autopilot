@@ -39,10 +39,25 @@ pip install ai-content-autopilot
 
 ### 1. Get your credentials
 
-- **API Key**: Go to [Account > API Keys](https://www.antonioblago.com/account/api-keys) and create a new key (starts with `sk_live_`)
-- **Webhook Secret**: Go to your Project > CMS Settings and configure a webhook endpoint. The secret is generated automatically.
+Requirement: a Visibly account on the **Standard plan or higher**. This package
+pulls articles the Content Autopilot writes, and the Autopilot (CMS connection,
+project API key) is not part of the Free plan. Pick a plan under
+[Settings](https://app.visibly-ai.com/settings) first.
 
-Full API documentation: **[Developer Docs](https://www.antonioblago.com/developers)**
+Everything else happens on one page: **Content Tools > Content Autopilot**
+(`https://app.visibly-ai.com/tools/content/autopilot/<project-id>`), card
+**CMS-Zugänge**.
+
+- **API Key**: under **Contentpilot-API-Key (Pull)** click **Key erzeugen**. The
+  key starts with `cp_`, is shown once, and only sees this project. An
+  account-wide `lc_` key from [Settings > API-Key & MCP](https://app.visibly-ai.com/settings#api-key)
+  works too, but it sees every project.
+- **Webhook Secret**: under **Neuen Zugang hinterlegen** create a connection of
+  type **Webhook (Pull-CMS)** with your endpoint URL and a secret of your choice,
+  and tick the events `article.approved` and `article.updated`. Paste the same
+  secret into your app.
+
+Full protocol: [anyCMS CONTRACT.md](https://github.com/AntonioBlago/anycms/blob/main/docs/CONTRACT.md)
 
 ### 2. Choose your integration style
 
@@ -76,7 +91,7 @@ def my_handler(article):
 
 configure_visibly(
     webhook_secret='your-webhook-secret',
-    api_key='sk_live_your_api_key',
+    api_key='cp_your_project_key',
     on_article_received=my_handler,
 )
 
@@ -95,7 +110,7 @@ Use the client directly to poll for articles or integrate into non-Flask applica
 ```python
 from ai_content_autopilot import VisiblyClient
 
-client = VisiblyClient(api_key='sk_live_your_api_key')
+client = VisiblyClient(api_key='cp_your_project_key')
 
 # List approved articles ready for publishing
 articles = client.list_articles(status='approved', project_id=5, limit=20)

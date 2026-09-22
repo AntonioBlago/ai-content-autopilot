@@ -51,7 +51,7 @@ Everything else happens on one page: **Content Tools > Content Autopilot**
 - **API Key**: under **Contentpilot-API-Key (Pull)** click **Key erzeugen**. The
   key starts with `cp_`, is shown once, and only sees this project. An
   account-wide `lc_` key from [Settings > API-Key & MCP](https://app.visibly-ai.com/settings#api-key)
-  works too, but it sees every project.
+  works too, but it sees every project and needs the Pro plan.
 - **Webhook Secret**: under **Neuen Zugang hinterlegen** create a connection of
   type **Webhook (Pull-CMS)** with your endpoint URL and a secret of your choice,
   and tick the events `article.approved` and `article.updated`. Paste the same

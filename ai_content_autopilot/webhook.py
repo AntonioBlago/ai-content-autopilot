@@ -141,6 +141,10 @@ def _process_in_background(app, event: str, article_id: Any, payload: Dict[str, 
 # Webhook Receiver Blueprint
 # =====================================================================
 
+#: Events that carry an article worth pulling. Everything else is either a
+#: connection test or a notification - see docs/CONTRACT.md.
+ARTICLE_EVENTS = ('article.approved', 'article.updated', 'article.published')
+
 contentpilot_webhook_bp = Blueprint('contentpilot_webhook', __name__)
 
 
@@ -178,6 +182,19 @@ def receive_visibly_webhook():
     article_id = payload.get('article_id')
 
     logger.info(f"Received webhook: event={event}, article_id={article_id}")
+
+    # "Test connection" in Visibly. There is no article behind it, so there is
+    # nothing to pull. Answering deliberately also keeps the synchronous path
+    # from reporting 502 for a connector that is configured correctly.
+    if event == 'webhook.test':
+        return jsonify({'status': 'ok', 'event': event}), 200
+
+    # article.failed and anything unknown: acknowledge, do not fetch. The
+    # contract asks for a log line, and an error would only invite retries
+    # that change nothing.
+    if not article_id or event not in ARTICLE_EVENTS:
+        logger.info(f"Ignoring event {event!r} (article_id={article_id})")
+        return jsonify({'status': 'ignored', 'event': event}), 200
 
     if not _config.get('api_key'):
         logger.error("API key not configured. Call configure_visibly() first.")

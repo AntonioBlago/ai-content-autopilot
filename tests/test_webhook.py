@@ -223,6 +223,56 @@ class TestWebhookEndpoint:
         assert r.status_code == 500
 
 
+class TestNonArticleEvents:
+    """Events that carry no article: the connection test and notifications.
+
+    Both have to be answered without touching the Pull API. Until they were
+    handled, a ``webhook.test`` fell through to ``fetch_article(None)``: the
+    synchronous path then answered 502, so a correctly configured connector
+    reported itself broken and got retried three times for good measure.
+    """
+
+    @pytest.mark.parametrize('background', [False, True])
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_connection_test_is_answered_without_a_pull(
+        self, mock_cls, flask_client, background
+    ):
+        """``webhook.test`` returns 200 and never reaches the Pull API."""
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        _config['background'] = background
+
+        payload = json.dumps({'event': 'webhook.test'}).encode()
+        r = flask_client.post(
+            '/webhooks/visibly',
+            data=payload,
+            headers={'X-Webhook-Signature': _make_signature(payload, 'secret')},
+        )
+        assert r.status_code == 200
+        assert r.get_json()['status'] == 'ok'
+        mock_cls.assert_not_called()
+
+    @pytest.mark.parametrize('event', ['article.failed', 'something.unknown'])
+    @patch('ai_content_autopilot.webhook.VisiblyClient')
+    def test_other_events_are_acknowledged_not_fetched(
+        self, mock_cls, flask_client, event
+    ):
+        """The contract asks for a log line, not a fetch and not an error."""
+        _config['webhook_secret'] = 'secret'
+        _config['api_key'] = 'key'
+        _config['background'] = False
+
+        payload = json.dumps({'event': event, 'article_id': 7}).encode()
+        r = flask_client.post(
+            '/webhooks/visibly',
+            data=payload,
+            headers={'X-Webhook-Signature': _make_signature(payload, 'secret')},
+        )
+        assert r.status_code == 200
+        assert r.get_json()['status'] == 'ignored'
+        mock_cls.assert_not_called()
+
+
 class TestBackgroundProcessing:
     """The default path since v1.1.0: acknowledge first, work afterwards.
 

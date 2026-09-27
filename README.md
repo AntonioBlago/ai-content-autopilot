@@ -1,10 +1,48 @@
-# ai-content-autopilot
+# Visibly AI CMS Connector
 
-Python SDK for the **[Visibly Content Autopilot](https://www.antonioblago.com/content-autopilot)** API.
+Connect your Python/Flask CMS to **[Visibly AI](https://app.visibly-ai.com)**:
+receive signed article events, fetch the approved content, save it in your CMS
+and report its published URL back to Visibly.
 
-Visibly Content Autopilot is an AI-powered content generation platform that creates SEO-optimized articles for your projects. It handles keyword research, content planning, and article generation — then delivers finished articles to your CMS via webhooks or a Pull API.
+Previously named `ai-content-autopilot` on GitHub. The Python distribution
+**`ai-content-autopilot`** and import **`ai_content_autopilot`** keep their names
+so existing installations continue to work.
 
-This SDK gives you everything you need to integrate Content Autopilot into any Python/Flask application:
+**[Zusammenhang auf Deutsch](https://github.com/AntonioBlago/visibly-ai-cms-connector/blob/master/docs/INTEGRATION_DE.md)** ·
+[AI assistant plugins](https://github.com/AntonioBlago/visiblyai-mcp-server/blob/master/PLUGINS.md) ·
+[CMS use cases](https://github.com/AntonioBlago/anycms)
+
+## How the projects fit together
+
+| Component | Role |
+| --- | --- |
+| [Visibly MCP and plugins](https://github.com/AntonioBlago/visiblyai-mcp-server) | Connect Claude Code, Codex and Copilot CLI to project context, skills, article drafts and NSS scoring in Visibly. |
+| [Visibly AI](https://app.visibly-ai.com) | Holds projects, briefings, drafts, scores, approvals and CMS connections. Content can come from an external agent or the Content Autopilot. |
+| **Visibly AI CMS Connector** (this repository) | Python SDK for the CMS side: Pull API client, signed webhook receiver and publication confirmation. Your handler controls CMS storage and publication. |
+| [anyCMS](https://github.com/AntonioBlago/anycms) | Concrete use cases for WordPress, Astro, Next.js and Flask. Flask uses this SDK; the PHP/TypeScript implementations follow the same API contract. |
+
+```mermaid
+flowchart LR
+    A[Claude Code / Codex / Copilot CLI] <-->|Plugins and MCP| V[Visibly AI: briefing, NSS, editor]
+    V -->|Signed webhook| C[CMS-side connector]
+    C -->|Pull article| V
+    C -->|Save or update| W[Your CMS / anyCMS use case]
+    C -->|Confirm published URL| V
+```
+
+The agent writes with its own model and can improve a draft toward NSS 70 or 80.
+Existing context, deterministic NSS scoring and draft saving use 0 Visibly
+credits; the assistant's tokens and new paid analyses are billed separately.
+Saving a draft does not publish it. Publishing or updating a website is a
+separate operation with the required project permissions and CMS connection.
+
+The CMS connector does not generate text or calculate NSS. It transfers the
+article into your application. `202 Accepted` means a webhook was received;
+publication is confirmed only after the CMS has made the article available.
+There is no universal 30-minute sync interval: timing depends on your webhook
+handler, background processing or a polling schedule that you configure.
+
+## What this SDK provides
 
 - **Pull API Client** — fetch, list, and confirm articles programmatically
 - **Webhook Receiver** — a ready-made Flask Blueprint that verifies HMAC signatures, fetches full article content, and calls your handler
@@ -13,12 +51,14 @@ This SDK gives you everything you need to integrate Content Autopilot into any P
 ## How It Works
 
 ```
-1. Content Autopilot generates & approves an article
+1. An article is prepared in Visibly and approved for publication
+   (or an existing published article is explicitly sent for update)
                     |
 2. Webhook fires to your endpoint (POST /webhooks/visibly)
    with HMAC-SHA256 signature for security
                     |
-3. Your app verifies the signature, then calls the Pull API
+3. Your app verifies the signature and acknowledges receipt (202 by default),
+   then calls the Pull API in the background
    to fetch the full article (HTML, Markdown, keywords, SEO score)
                     |
 4. Your app saves/publishes the article in your CMS
@@ -40,7 +80,7 @@ pip install ai-content-autopilot
 ### 1. Get your credentials
 
 Requirement: a Visibly account on the **Standard plan or higher**. This package
-pulls articles the Content Autopilot writes, and the Autopilot (CMS connection,
+pulls articles managed in Visibly, and the Autopilot (CMS connection,
 project API key) is not part of the Free plan. Pick a plan under
 [Settings](https://app.visibly-ai.com/settings) first.
 
@@ -87,7 +127,7 @@ def my_handler(article):
         publish_at=article.get('_scheduled_date'),
     ))
     db.session.commit()
-    return True  # Return False to reject (422 response)
+    return True  # Processing succeeded; publication confirmation is a separate call.
 
 configure_visibly(
     webhook_secret='your-webhook-secret',
@@ -98,9 +138,9 @@ configure_visibly(
 app.register_blueprint(contentpilot_webhook_bp)
 # POST /webhooks/visibly is now active and handles:
 #   1. HMAC-SHA256 signature verification
-#   2. Full article fetch via Pull API
-#   3. Calls my_handler(article)
-#   4. Returns {"success": true} or appropriate error
+#   2. HTTP 202 acknowledgement (background=True, the default)
+#   3. Full article fetch and my_handler(article) in a background thread
+# Handler failures are logged; 202 does not mean the article is published.
 ```
 
 #### Option B: Standalone Pull API Client
@@ -239,7 +279,7 @@ seconds for your response, and this is what each outcome means to it:
 
 | Your response | How Visibly reads it |
 |---|---|
-| `202` | Accepted, you are working on it. Success. |
+| `202` | Receipt accepted; processing/publication still needs confirmation. |
 | `200` with a body naming `blog_post_id`, `post_id` or `id` | Processed, done. |
 | `200` with a JSON body naming none of those | Acknowledged, but nothing happened. Logged as a failure with your message. |
 | `4xx` | Rejected. Not retried, a second attempt would fail the same way. |
@@ -410,14 +450,14 @@ When rate-limited, the API returns HTTP 429 with a `Retry-After` header.
 
 - [Visibly AI](https://app.visibly-ai.com) — the platform
 - [API Keys](https://app.visibly-ai.com/settings) — manage your API keys
-- [GitHub Repository](https://github.com/AntonioBlago/ai-content-autopilot)
+- [GitHub Repository](https://github.com/AntonioBlago/visibly-ai-cms-connector)
 - [PyPI Package](https://pypi.org/project/ai-content-autopilot/)
 
 ## Development
 
 ```bash
-git clone https://github.com/AntonioBlago/ai-content-autopilot.git
-cd ai-content-autopilot
+git clone https://github.com/AntonioBlago/visibly-ai-cms-connector.git
+cd visibly-ai-cms-connector
 pip install -e ".[dev]"
 pytest tests/ -v
 ```

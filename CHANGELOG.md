@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — repository naming and documentation (2026-09-27)
+
+- Rename the GitHub project from `ai-content-autopilot` to
+  `visibly-ai-cms-connector`, displayed as **Visibly AI CMS Connector**.
+- Explain the complete assistant → MCP → Visibly → CMS workflow and the role
+  of anyCMS as concrete WordPress/Astro/Next.js/Flask use cases.
+- Add a German integration guide and shared agent entry points; distinguish
+  webhook acceptance from CMS publication and update stale README examples.
+- Update repository metadata and install the project dependencies in CI.
+- Keep the PyPI name `ai-content-autopilot`, Python imports, version 1.1.0,
+  routes and environment configuration unchanged. No new PyPI release is implied.
+
 ## 1.1.0 (2026-09-14)
 
 Two production findings, both from pushing an edited article back to a CMS.

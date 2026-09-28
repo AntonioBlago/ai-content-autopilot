@@ -1,5 +1,8 @@
 # Visibly AI CMS Connector: Hinweise für Agents
 
+- Markenname in gepflegten Texten immer **Neuro-SEO-System®** schreiben, auch
+  auf Englisch. URLs, technische Kennungen und originale Quelldaten beibehalten.
+
 - Lies [README.md](README.md) und [docs/INTEGRATION_DE.md](docs/INTEGRATION_DE.md).
 - Dieses Repository ist das Python-SDK auf der CMS-Seite. `anycms` enthält die
   Anwendungsfälle; `visiblyai-mcp-server` enthält MCP und KI-Plugins.

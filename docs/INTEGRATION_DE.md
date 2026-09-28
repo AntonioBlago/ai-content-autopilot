@@ -1,7 +1,11 @@
 # Visibly AI CMS Connector: so hängt alles zusammen
 
+Namenspflege 2026-09-28: README und diese Erklärung verwenden einheitlich
+**Neuro-SEO-System®**. Die dauerhafte DE/EN-Namensregel steht in `AGENTS.md`.
+Nur Dokumentation; URL-Ziele und SDK-Laufzeitcode unverändert, kein Paket-Release.
+
 Dokumentationsnachtrag 2026-09-28: Zentrale NSS-Erklärung in README und diesem
-Dokument verlinkt. Ergänzend Antonio Blagos Neuro-SEO System® als methodische
+Dokument verlinkt. Ergänzend Antonio Blagos Neuro-SEO-System® als methodische
 Grundlage verlinkt; Originalziel mit HTTP 200 und Canonical geprüft.
 Nur Dokumentationsänderung, kein Paket-/API-Verhalten geändert und kein Paket-Release.
 Marketingseiten `/de/nss-score` und `/nss-score` mit Commit `c6f4d08` veröffentlicht,
@@ -39,7 +43,7 @@ Textmerkmale im Kontext der zugehörigen Analyse. Die zentrale Erklärung zeigt
 Bewertungsbereiche, nachvollziehbare Rückmeldungen und Grenzen; der Score
 misst keine tatsächlichen Rankings oder KI-Erwähnungen.
 Die methodische Grundlage ist das von Antonio Blago entwickelte
-[Neuro-SEO System®](https://www.antonioblago.com/de/neuro-seo-system/),
+[Neuro-SEO-System®](https://www.antonioblago.com/de/neuro-seo-system/),
 das Suchmaschinenoptimierung mit Verkaufspsychologie verbindet.
 
 1. **Schreiben:** Du gibst Claude, Codex oder Copilot einen Auftrag. Das Plugin

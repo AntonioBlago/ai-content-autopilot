@@ -33,7 +33,7 @@ flowchart LR
 The agent writes with its own model and can improve a draft toward NSS 70 or 80.
 See [what the NSS measures, how to interpret it and its limits](https://www.visibly-ai.com/nss-score).
 Its methodological foundation is Antonio Blago's
-[Neuro-SEO System®](https://www.antonioblago.com/de/neuro-seo-system/) (German overview).
+[Neuro-SEO-System®](https://www.antonioblago.com/de/neuro-seo-system/) (German overview).
 Existing context, deterministic NSS scoring and draft saving use 0 Visibly
 credits; the assistant's tokens and new paid analyses are billed separately.
 Saving a draft does not publish it. Publishing or updating a website is a

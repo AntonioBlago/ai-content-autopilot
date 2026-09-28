@@ -1,5 +1,13 @@
 # Visibly AI CMS Connector: so hängt alles zusammen
 
+Dokumentationsnachtrag 2026-09-28: Zentrale NSS-Erklärung in README und diesem
+Dokument verlinkt. Ergänzend Antonio Blagos Neuro-SEO System® als methodische
+Grundlage verlinkt; Originalziel mit HTTP 200 und Canonical geprüft.
+Nur Dokumentationsänderung, kein Paket-/API-Verhalten geändert und kein Paket-Release.
+Marketingseiten `/de/nss-score` und `/nss-score` mit Commit `c6f4d08` veröffentlicht,
+Vercel erfolgreich; beide Linkziele live mit HTTP 200 und Grundlagenlink geprüft.
+Dieser Dokumentationsstand ist für den vom Nutzer beauftragten Git-Push vorbereitet.
+
 Stand: 2026-09-27. Dieses Repository hieß zuvor `ai-content-autopilot` und heißt
 auf GitHub jetzt **`visibly-ai-cms-connector`**. Der Produktname ist
 **Visibly AI CMS Connector**. Installation und Python-Imports bleiben kompatibel:
@@ -25,6 +33,14 @@ Hier liegen Projekt, Briefing, Artikel, Score, Freigabe und CMS-Zugang.
 Die GitHub-Projekte werden weder zusammengelegt noch gegeneinander ausgetauscht.
 
 ## Vom Auftrag zum veröffentlichten Artikel
+
+Der [NSS (Neuro-SEO Score)](https://www.visibly-ai.com/de/nss-score) bewertet
+Textmerkmale im Kontext der zugehörigen Analyse. Die zentrale Erklärung zeigt
+Bewertungsbereiche, nachvollziehbare Rückmeldungen und Grenzen; der Score
+misst keine tatsächlichen Rankings oder KI-Erwähnungen.
+Die methodische Grundlage ist das von Antonio Blago entwickelte
+[Neuro-SEO System®](https://www.antonioblago.com/de/neuro-seo-system/),
+das Suchmaschinenoptimierung mit Verkaufspsychologie verbindet.
 
 1. **Schreiben:** Du gibst Claude, Codex oder Copilot einen Auftrag. Das Plugin
    liest das passende Visibly-Briefing; der Agent schreibt mit seinem eigenen
